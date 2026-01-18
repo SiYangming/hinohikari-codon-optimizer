@@ -8,17 +8,6 @@ import io
 import random
 import torch
 from transformers import AutoTokenizer, AutoModelForMaskedLM
-import matplotlib.font_manager as fm
-import os
-
-# 配置中文字体（上传NotoSansTC-Regular.ttf到仓库解决乱码）
-font_path = 'NotoSansTC-Regular.ttf'
-if os.path.exists(font_path):
-    prop = fm.FontProperties(fname=font_path)
-    plt.rcParams['font.family'] = prop.get_name()
-    plt.rcParams['axes.unicode_minus'] = False
-else:
-    st.warning("字体文件未找到，图表中文可能乱码。请上传 NotoSansTC-Regular.ttf。")
 
 # Oryza sativa codon usage table (frequency per thousand, from Kazusa)
 rice_codon_table = {
@@ -45,7 +34,7 @@ rice_codon_table = {
     'G': {'GGT': 10.2, 'GGC': 26.1, 'GGA': 12.9, 'GGG': 13.4}
 }
 
-# 加载CodonBERT模型
+# Load CodonBERT model
 @st.cache_resource
 def load_model():
     tokenizer = AutoTokenizer.from_pretrained("lhallee/CodonBERT")
@@ -54,7 +43,7 @@ def load_model():
 
 tokenizer, model = load_model()
 
-# 构建同义密码子列表
+# Build synonymous codons list
 standard_table = CodonTable.unambiguous_dna_by_name["Standard"]
 synonymous_codons = {}
 for codon, aa in standard_table.forward_table.items():
@@ -65,7 +54,7 @@ for codon, aa in standard_table.forward_table.items():
 def get_random_codon(aa):
     return random.choice(synonymous_codons.get(aa, ['NNN']))
 
-# 规则优化
+# Rule-based optimization
 def rule_optimize(aa_seq):
     dna_seq = ''
     for aa in aa_seq:
@@ -73,14 +62,14 @@ def rule_optimize(aa_seq):
         if codons:
             dna_seq += max(codons, key=codons.get)
         else:
-            dna_seq += 'NNN'  # 未知
+            dna_seq += 'NNN'  # unknown
     return dna_seq
 
-# 大模型优化（CodonBERT）：mask 20% codons并预测
+# LLM optimization (CodonBERT): mask 20% codons and predict
 def llm_optimize(aa_seq, mask_rate=0.2):
-    # 初始随机DNA
+    # Initial random DNA
     initial_dna = ''.join(get_random_codon(aa) for aa in aa_seq)
-    # Tokenize为codons (CodonBERT用空格分隔codons)
+    # Tokenize into codons (CodonBERT uses space-separated codons)
     codons = [initial_dna[i:i+3] for i in range(0, len(initial_dna), 3)]
     masked_codons = [c if random.random() > mask_rate else tokenizer.mask_token for c in codons]
     input_text = ' '.join(masked_codons)
@@ -90,9 +79,9 @@ def llm_optimize(aa_seq, mask_rate=0.2):
         logits = model(**inputs).logits
     mask_indices = (inputs.input_ids[0] == tokenizer.mask_token_id).nonzero(as_tuple=True)[0]
     predicted_ids = logits[0, mask_indices].argmax(-1)
-    predicted_codons = tokenizer.batch_decode(predicted_ids)  # 批量解码
+    predicted_codons = tokenizer.batch_decode(predicted_ids)  # batch decode
     
-    # 替换masked
+    # Replace masked
     pred_idx = 0
     for i in range(len(masked_codons)):
         if masked_codons[i] == tokenizer.mask_token:
@@ -102,7 +91,7 @@ def llm_optimize(aa_seq, mask_rate=0.2):
     
     return ''.join(masked_codons)
 
-# CAI计算
+# CAI calculation
 def calculate_cai(dna_seq, codon_table=rice_codon_table):
     if len(dna_seq) % 3 != 0:
         return 0.0
@@ -121,31 +110,31 @@ def calculate_cai(dna_seq, codon_table=rice_codon_table):
             pass
     return cai_sum / count if count > 0 else 0.0
 
-st.title("日本晴稻密码子优化对比演示（规则 vs. 大模型）")
-st.write("输入DNA序列，翻译为氨基酸后，进行规则和大模型优化对比。适用于Hinohikari育种。")
+st.title("Hinohikari Codon Optimization Comparison (Rule-based vs. LLM)")
+st.write("Input DNA sequence, translate to amino acids, then perform rule-based and LLM optimization comparison. Suitable for Hinohikari breeding.")
 
-# 使用session_state管理输入
+# Use session_state to manage input
 if 'dna_input' not in st.session_state:
     st.session_state.dna_input = ""
 
-# 输入框
-dna_input = st.text_area("DNA序列（ORF，3的倍数）", value=st.session_state.dna_input, height=200)
+# Input box
+dna_input = st.text_area("DNA Sequence (ORF, multiple of 3)", value=st.session_state.dna_input, height=200)
 
-if st.button("加载默认示例: Badh2基因 (Oryza sativa)"):
+if st.button("Load Default Example: Badh2 Gene (Oryza sativa)"):
     default_dna = "atggccacggcgatcccgcagcggcagctcttcgtcgccggcgagtggcgcgcccccgcgctcggccgccgcctccccgtcgtcaaccccgccaccgagtcccccatcggcgagatcccggcgggcacggcggaggacgtggacgcggcggtggcggcggcgcgggaggcgctgaagaggaaccggggccgcgactgggcgcgcgcgccgggcgccgtccgggccaagtacctccgcgcaatcgcggccaagataatcgagaggaaatctgagctggactagagacgcttgattgtgggaagcctcttgatgaagcagcatgggacatggacgatgttgctggatgctttgagtactttgcagatcttgcagaatccttggacaaaaggcaaaatgcacctgtctctcttccaatggaaaactttaaatgctatcttcggaaagagcctatcgggtagttgggttgatcacaccttggaactatcctctcctgatggcaacatggaaggtagctcctgccctggctgctggctgtacagctgtactaaaaccatctgaattggcttccgtgacttgtttggagcttgctgatgtgtgtaaagaggttggtcttccttcaggtgtgctaaacatagtgactggattaggttctgaagccggtgctcctttgtcatcacaccctggtgtagacaaggttgcatttactgggagttatgaaactggtaaaaagattatggcttcagctgctcctatggttaagcctgtttcactggaacttggtggaaaaagtcctatagtggtgtttgatgatgttgatgttgaaaaagctgttgagtggactctctttggttgcttttggaccaatggccagatttgcagtgcaacatcgcgtcttattcttcataaaaaaatcgctaaagaatttcaagaaaggatggttgcatgggccaaaaatattaaggtgtcagatccacttgaagagggttgcaggcttgggcccgttgttagtgaaggacagtatgagaagattaagcaatttgtatctaccgccaaaagccaaggtgctaccattctgactggtggggttagacccaagcatctggagaaaggtttctatattgaacccacaatcattactgatgtcgatacatcaatgcaaatttggagggaagaagttttttggtccagtgctctgtgtgaaagaatttagcactgaagaagaagccattgaattggccaacgatactcattatggtctggctggtgctgtgctttccggtgaccgcgagcgatgccagagattaactgaggagatcgatgccggaatttatctgggtgaactgctcgcaaccctgcttctgccaagctccatggggcgggaacaagcgcagcggctttggacgcgagctcggagaagggggcattgacaactaccttagcgtcaagcaagtgacggagtacgcctccgatgagccgtgggatggtacaaatccccttccaagctgtaa"
     st.session_state.dna_input = default_dna
-    st.rerun()  # 刷新页面更新输入框
+    st.rerun()  # Refresh page to update input box
 
-if st.button("优化对比"):
-    input_value = dna_input.upper().replace(" ", "")  # 清理输入
+if st.button("Optimization Comparison"):
+    input_value = dna_input.upper().replace(" ", "")  # Clean input
     orig_len = len(input_value)
     if orig_len % 3 != 0:
-        # 自动截断到3的倍数
+        # Auto truncate to multiple of 3
         input_value = input_value[: (orig_len // 3) * 3]
-        st.warning(f"输入DNA长度 {orig_len} 不是3的倍数，已自动截断到 {len(input_value)} bp（丢弃尾部碱基）。")
+        st.warning(f"Input DNA length {orig_len} is not a multiple of 3, auto truncated to {len(input_value)} bp (discarded tail bases).")
     
     if len(input_value) == 0:
-        st.error("有效DNA序列为空，请输入有效序列。")
+        st.error("Effective DNA sequence is empty, please input valid sequence.")
     else:
         try:
             aa_seq = str(Seq(input_value).translate())
@@ -155,27 +144,32 @@ if st.button("优化对比"):
             rule_cai = calculate_cai(rule_dna)
             llm_cai = calculate_cai(llm_dna)
 
-            st.subheader("原始DNA: " + input_value[:100] + "...")
-            st.subheader("规则优化DNA: " + rule_dna[:100] + "...")
-            st.subheader("大模型优化DNA (CodonBERT): " + llm_dna[:100] + "...")
+            st.subheader("Original DNA:")
+            st.text_area("", value=input_value, height=100, disabled=True)
 
-            # 图表
+            st.subheader("Rule-based Optimized DNA:")
+            st.text_area("", value=rule_dna, height=100, disabled=True)
+
+            st.subheader("LLM Optimized DNA (CodonBERT):")
+            st.text_area("", value=llm_dna, height=100, disabled=True)
+
+            # Chart
             fig, ax = plt.subplots()
-            ax.bar(['原始', '规则优化', '大模型优化'], [orig_cai, rule_cai, llm_cai])
-            ax.set_ylabel('CAI 值')
-            ax.set_title('优化对比')
+            ax.bar(['Original', 'Rule-based', 'LLM'], [orig_cai, rule_cai, llm_cai])
+            ax.set_ylabel('CAI Value')
+            ax.set_title('Optimization Comparison')
             st.pyplot(fig)
 
-            # PDF报告
+            # PDF report
             pdf_buffer = io.BytesIO()
             pdf = canvas.Canvas(pdf_buffer, pagesize=letter)
-            pdf.drawString(100, 750, "Hinohikari 密码子优化对比报告")
-            pdf.drawString(100, 700, f"原始 CAI: {orig_cai:.2f}")
-            pdf.drawString(100, 650, f"规则优化 CAI: {rule_cai:.2f}")
-            pdf.drawString(100, 600, f"大模型优化 CAI: {llm_cai:.2f}")
-            pdf.drawString(100, 550, "大模型在上下文优化上优于规则方法。")
+            pdf.drawString(100, 750, "Hinohikari Codon Optimization Comparison Report")
+            pdf.drawString(100, 700, f"Original CAI: {orig_cai:.2f}")
+            pdf.drawString(100, 650, f"Rule-based CAI: {rule_cai:.2f}")
+            pdf.drawString(100, 600, f"LLM CAI: {llm_cai:.2f}")
+            pdf.drawString(100, 550, "LLM outperforms rule-based in contextual optimization.")
             pdf.save()
             pdf_buffer.seek(0)
-            st.download_button("下载 PDF 报告", pdf_buffer, file_name="optimize_compare_report.pdf", mime="application/pdf")
+            st.download_button("Download PDF Report", pdf_buffer, file_name="optimize_compare_report.pdf", mime="application/pdf")
         except Exception as e:
-            st.error(f"错误: {e}")
+            st.error(f"Error: {e}")
